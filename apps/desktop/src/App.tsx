@@ -13,6 +13,7 @@ export default function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
   const [serverOn] = useState(true);
   const [pin, setPin] = useState("");
   const [expiry, setExpiry] = useState(60);
@@ -40,6 +41,7 @@ export default function App() {
     if (!files) return;
     setUploading(true);
     setUploadProgress(0);
+    setUploadSuccess(false);
     const form = new FormData();
     Array.from(files).forEach((file) => form.append("file", file));
     const xhr = new XMLHttpRequest();
@@ -52,7 +54,9 @@ export default function App() {
     xhr.onload = () => {
       setUploading(false);
       setUploadProgress(0);
+      setUploadSuccess(true);
       fetchFiles();
+      setTimeout(() => setUploadSuccess(false), 2000);
     };
     xhr.onerror = () => {
       setUploading(false);
@@ -81,7 +85,7 @@ export default function App() {
               <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6v12m-6-12v12" /></svg>
               <span>{url}</span>
               <button onClick={copyUrl} style={{ background: "none", border: "none", cursor: "pointer" }} title="Copy URL">
-                <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg>
+                <svg width={20} height={20} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg>
               </button>
             </div>
             <div className="qr-section">
@@ -124,6 +128,9 @@ export default function App() {
                   "Drag & drop or click to upload files"
                 )}
               </div>
+              {uploadSuccess && (
+                <div style={{ color: '#2ecc40', marginTop: 12, fontWeight: 500 }}>Uploaded successfully!</div>
+              )}
             </div>
             <FileList files={files} />
           </section>

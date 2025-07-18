@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -17,19 +18,30 @@ use std::path::{PathBuf, Path};
 use std::fs;
 use std::io::Write;
 use axum_server::Server;
-use tauri::api::path::app_dir;
+use directories::ProjectDirs;
 
 struct AppState {
-    files: Mutex<HashMap<String, PathBuf>>,
+    files: tokio::sync::Mutex<std::collections::HashMap<String, PathBuf>>,
+}
+
+fn get_upload_dir() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("com", "lanctl", "lanctl") {
+        let dir = proj_dirs.data_dir().join("uploads");
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    } else {
+        let dir = std::env::current_dir().unwrap().join("uploads");
+        std::fs::create_dir_all(&dir).ok();
+        dir
+    }
 }
 
 #[axum::debug_handler]
 async fn upload(
-    state: State<Arc<AppState>>,
-    mut multipart: Multipart
-) -> impl IntoResponse {
-    let app_upload_dir = app_dir(&tauri::Config::default()).unwrap_or_else(|| std::env::current_dir().unwrap()).join("uploads");
-    std::fs::create_dir_all(&app_upload_dir).ok();
+    state: axum::extract::State<std::sync::Arc<AppState>>,
+    mut multipart: axum::extract::Multipart
+) -> impl axum::response::IntoResponse {
+    let app_upload_dir = get_upload_dir();
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.file_name().map(|s| s.to_string()).unwrap_or_else(|| "file".to_string());
         let data = field.bytes().await.unwrap();
@@ -38,13 +50,24 @@ async fn upload(
         file.write_all(&data).unwrap();
         state.files.lock().await.insert(name, path);
     }
-    StatusCode::OK
+    axum::http::StatusCode::OK
 }
 
-async fn list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let files = state.files.lock().await;
-    let list = files.keys().cloned().collect::<Vec<_>>().join("\n");
-    Html(list)
+async fn list(_: State<Arc<AppState>>) -> impl IntoResponse {
+    let dir = get_upload_dir();
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_file() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        names.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Html(names.join("\n"))
 }
 
 async fn download(State(state): State<Arc<AppState>>, axum::extract::Path(filename): axum::extract::Path<String>) -> impl IntoResponse {
