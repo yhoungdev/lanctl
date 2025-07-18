@@ -945,6 +945,7 @@ dependencies = [
  "directories",
  "futures",
  "image",
+ "once_cell",
  "qrcode",
  "serde",
  "serde_json",

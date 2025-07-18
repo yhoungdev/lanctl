@@ -1,5 +1,5 @@
-#![allow(unused_imports)]
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#![allow(unused_imports, unused_variables, dead_code, unused_macros, unused_mut, unused_assignments, unused_attributes)]
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -19,21 +19,18 @@ use std::fs;
 use std::io::Write;
 use axum_server::Server;
 use directories::ProjectDirs;
+use std::sync::atomic::{AtomicU16, Ordering};
+use once_cell::sync::OnceCell;
+static SERVER_PORT: OnceCell<u16> = OnceCell::new();
 
 struct AppState {
     files: tokio::sync::Mutex<std::collections::HashMap<String, PathBuf>>,
 }
 
 fn get_upload_dir() -> PathBuf {
-    if let Some(proj_dirs) = ProjectDirs::from("com", "lanctl", "lanctl") {
-        let dir = proj_dirs.data_dir().join("uploads");
-        std::fs::create_dir_all(&dir).ok();
-        dir
-    } else {
-        let dir = std::env::current_dir().unwrap().join("uploads");
-        std::fs::create_dir_all(&dir).ok();
-        dir
-    }
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("uploads");
+    std::fs::create_dir_all(&dir).ok();
+    dir
 }
 
 #[axum::debug_handler]
@@ -80,32 +77,44 @@ async fn download(State(state): State<Arc<AppState>>, axum::extract::Path(filena
     StatusCode::NOT_FOUND.into_response()
 }
 
-fn spawn_web_server() {
-    std::thread::spawn(|| {
+async fn api_test() -> impl IntoResponse {
+    Html("API running")
+}
+
+#[tauri::command]
+pub async fn start_server() -> u16 {
+    let port = get_free_port();
+    SERVER_PORT.set(port).ok();
+    std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
             let state = Arc::new(AppState { files: Mutex::new(HashMap::new()) });
             let app = Router::new()
                 .route("/upload", post(upload))
                 .route("/list", get(list))
-                .route("/download/:filename", get(download))
+                .route("/download/{filename}", get(download))
+                .route("/api/test", get(api_test))
                 .nest_service("/", ServeDir::new("webui").not_found_service(get(|| async { Html("Not found") })))
                 .with_state(state);
-            let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+            let addr = SocketAddr::from(([0, 0, 0, 0], port));
             Server::bind(addr)
                 .serve(app.into_make_service())
                 .await
                 .unwrap();
         });
     });
+    port
+}
+
+fn get_free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    spawn_web_server();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, start_server])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
